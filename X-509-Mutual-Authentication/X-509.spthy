@@ -1,0 +1,67 @@
+theory x_509
+begin
+
+functions: CEOgen/1
+builtins: asymmetric-encryption, signing, symmetric-encryption
+
+rule InitInitiatorKeys:  // Honest Initiator
+    [ Fr(~skI), Fr(idI) ]  // Fresh private key and identity for Initiator
+  --[ RegisterInitiatorKey_Honest(~skI, pk(~skI), idI), Honest(idI) ]->
+    [ Out(pk(~skI)) ]  // Output public key
+
+rule InitResponderKeys:  // Honest Responder
+    [ Fr(~skR), Fr(idR) ]  // Fresh private key and identity for Responder
+  --[ RegisterResponderKey_Honest(~skR, pk(~skR), idR), Honest(idR) ]->
+    [ Out(pk(~skR)) ]  // Output public key
+
+
+rule CorruptInitiatorKeys:  // Dishonest Initiator
+    [ Fr(~k), Fr(idI) ]  // Attacker-provided private key and identity for Initiator
+  --[ RegisterInitiatorKey_Corrupt(~k, pk(~k), idI), Corrupt(idI) ]->
+    [ Out(pk(~k)) ]  // Output public key
+
+rule CorruptResponderKeys:  // Dishonest Responder
+    [ Fr(~k), Fr(idR) ]  // Attacker-provided private key and identity for Responder
+  --[ RegisterResponderKey_Corrupt(~k, pk(~k), idR), Corrupt(idR) ]->
+    [ Out(pk(~k)) ]  // Output public key
+
+
+
+
+//If there are two InitiatorKey (i.e., two key registrations) for the Initiator, their private keys (skI1 and skI2) must be the same.
+//Consequently, their public keys (pkI1 and pkI2) will also be the same, since public keys are derived from private keys.
+restriction UniqueInitiatorKey:
+    "All skI1 skI2 pkI1 pkI2 idI #t1 #t2.
+    RegisterInitiatorKey_Honest(skI1, pkI1, idI) @ t1 & 
+    RegisterInitiatorKey_Honest(skI2, pkI2, idI) @ t2 
+    ==> skI1 = skI2"
+
+restriction UniqueResponderKey:
+    "All skR1 skR2 pkR1 pkR2 idR #t1 #t2.
+    RegisterResponderKey_Honest(skR1, pkR1, idR) @ t1 & 
+    RegisterResponderKey_Honest(skR2, pkR2, idR) @ t2 
+    ==> skR1 = skR2"
+
+lemma UniqueInitiatorKey:
+    "All skI1 skI2 pkI1 pkI2 idI #t1 #t2.
+    RegisterInitiatorKey_Honest(skI1, pkI1, idI) @ t1 & 
+    RegisterInitiatorKey_Honest(skI2, pkI2, idI) @ t2 
+    ==> skI1 = skI2 & pkI1 = pkI2"
+
+lemma UniqueResponderKey:
+    "All skR1 skR2 pkR1 pkR2 idR #t1 #t2.
+    RegisterResponderKey_Honest(skR1, pkR1, idR) @ t1 & 
+    RegisterResponderKey_Honest(skR2, pkR2, idR) @ t2 
+    ==> skR1 = skR2 & pkR1 = pkR2"
+
+lemma HonestKeyRegistration:
+    "All id ska pka #t.
+    RegisterInitiatorKey_Honest(ska, pka, id) @ t & RegisterResponderKey_Honest(ska, pka, id) @ t
+    ==> Honest(id) @ t"
+
+// lemma CorruptKeyRegistration:
+//     "All id t.
+//     Corrupt(id) @ t ==> 
+//         (Ex sk pk. RegisterInitiatorKey_Corrupt(sk, pk, id) @ t | RegisterResponderKey_Corrupt(sk, pk, id) @ t)"
+
+end
