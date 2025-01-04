@@ -20,21 +20,21 @@ rule InitResponderKeys:
 
 
 rule CorruptInitiatorKeys:  // Dishonest Initiator
-    [ Fr(~k), Fr(idI) ]  // Attacker-provided private key and identity for Initiator
+    [ Fr(~k), Fr(idCI) ]  // Attacker-provided private key and identity for Initiator
   --[ 
-     RegisterInitiatorKey_Corrupt(~k, pk(~k), idI), 
-    Corrupt(idI) 
+     RegisterInitiatorKey_Corrupt(~k, pk(~k), idCI), 
+    Corrupt(idCI) 
      ]->
-    [ Out(pk(~k)) ]  // Output public key
+    [ Out(pk(~k)) ] 
 
 rule CorruptResponderKeys:  // Dishonest Responder
-    [ Fr(~k), Fr(idR) ]     // Attacker-provided private key and identity for Responder
-  --[ RegisterResponderKey_Corrupt(~k, pk(~k), idR), 
-    Corrupt(idR) ]->
-    [ Out(pk(~k)) ]         // Output public key
+    [ Fr(~k), Fr(idCR) ]     // Attacker-provided private key and identity for Responder
+  --[ RegisterResponderKey_Corrupt(~k, pk(~k), idCR), 
+    Corrupt(idCR) ]->
+    [ Out(pk(~k)) ]       
 
 
-rule InitiatorToResponder:
+rule I1:
     [ Fr(~k1), 
       Fr(~t), 
       Fr(~req), 
