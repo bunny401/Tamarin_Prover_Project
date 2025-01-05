@@ -1,38 +1,39 @@
 theory x_509
 begin
 
-functions: CEOgen/1, true/0
+functions: true/0
 builtins: asymmetric-encryption, signing, symmetric-encryption
 
+//3a
 rule InitInitiatorKeys:  
     [ Fr(~skI), Fr(idI) ]  
   --[ InitInitiatorKeys(~skI, pk(~skI), idI), 
-    Honest(idI) ]->
+    Honest(idI) ]-> //3b
     [ Out(pk(~skI)), 
     !RegisterInitiatorKey_Honest(~skI, pk(~skI), idI) ]  
 
 rule InitResponderKeys:  
     [ Fr(~skR), Fr(idR) ]  
   --[ InitResponderKeys(~skR, pk(~skR), idR), 
-    Honest(idR) ]->
+    Honest(idR) ]-> //3b
     [ Out(pk(~skR)), 
     !RegisterResponderKey_Honest(~skR, pk(~skR), idR) ]  
 
+//3b
+rule CorruptInitiatorKeys:
+    [ Fr(~k), Fr(idCI) ]  // Adversary provides private key ~k and identity idCI
+  --[ RegisterInitiatorKey_Corrupt(~k, pk(~k), idCI), 
+      Corrupt(idCI) ]->   // Mark the key as corrupt
+    [ Out(pk(~k)) ]       // Output the public key
 
-rule CorruptInitiatorKeys:  // Dishonest Initiator
-    [ Fr(~k), Fr(idCI) ]  // Attacker-provided private key and identity for Initiator
-  --[ 
-     RegisterInitiatorKey_Corrupt(~k, pk(~k), idCI), 
-    Corrupt(idCI) ]->
-    [ Out(pk(~k)) ] 
-
-rule CorruptResponderKeys:  // Dishonest Responder
-    [ Fr(~k), Fr(idCR) ]     // Attacker-provided private key and identity for Responder
+rule CorruptResponderKeys:
+    [ Fr(~k), Fr(idCR) ]  // Adversary provides private key ~k and identity idCR
   --[ RegisterResponderKey_Corrupt(~k, pk(~k), idCR), 
-    Corrupt(idCR) ]->
-    [ Out(pk(~k)) ]       
+      Corrupt(idCR) ]->   // Mark the key as corrupt
+    [ Out(pk(~k)) ]       // Output the public key
 
 
+//3c
 rule I1:
     [ Fr(~k1), 
       Fr(~t), 
@@ -41,7 +42,8 @@ rule I1:
       !RegisterInitiatorKey_Honest(~skI, pk(~skI), idI),
       !RegisterResponderKey_Honest(~skR, pkR, idR) ]  
   --[ 
-        SendInitiator(~k1, ~t, ~req,~certI)
+        SendInitiator(~k1, ~t, ~req,~certI),
+        LearnedDataI(~req)
     ]->
     [ Out(~certI),                           // Certificate of Initiator
       Out(~t),                              // Timestamp
@@ -71,8 +73,9 @@ in
     ]  
     --[
         Eq(true, verify(sigI,<~req, ~t>,pk(~skI))),
-        ReceiveResponder(~k1, ~t, ~req, ~resp, ~certI, sigI),
-        SendResponder(~k2, ~resp, sigR)                      
+        ReceiveInitiatorMessage(~k1, ~t, ~req, ~resp, ~certI, sigI),
+        SendResponderMessage(~k2, ~resp, sigR),
+        ResponderAuthenticatedInitiator(~req, idI)
       ]->
 
       [ Out(senc(~resp, ~k2)),               // Symmetric encryption of RESP
@@ -83,35 +86,31 @@ in
 
 rule I2:
     let 
-    k2_calc = adec(aenc(~k2, pk(~skI)), ~skI)           // Decrypt symmetric key
+    sigI=sign(<~req, ~t>,~skI) 
+    k2_calc = adec(aenc(~k2, pk(~skI)), ~skI)
     resp_calc = sdec(senc(~resp, ~k2), k2_calc)               // Decrypt response
+    //sigR=sign(<~resp, sigI>, ~skR)
     in
     [ In(senc(~resp, ~k2)),                        // Encrypted response
     In(aenc(~k2, pk(~skI))),                     // Encrypted symmetric key
-    In(sign(<~resp, ~sigI>, ~skR)),              // Responder's signature
+    In(sigR),              // Responder's signature
     !RegisterInitiatorKey_Honest(~skI, pk(~skI), idI),   // Initiator's key
-    !RegisterResponderKey_Honest(~skR, pk(~skR), idR)    // Responder's key
+    !RegisterResponderKey_Honest(~skR, pk(~skR), idR),
+    Initiator(~skI, pk(~skI), idI, ~certI, ~k1, ~t, ~req)    // Responder's key
     ]
     --[
-        Eq(true, verify(sign(<~resp, ~sigI>, ~skR), <~resp, ~sigI>, pk(~skR)))  // Verify Responder's signature
+        Eq(true, verify(sigR, <~resp, sigI>, pk(~skR))),
+        ReceiveResponderMessage(k2_calc, resp_calc, sigR),
+        InitiatorAuthenticatedResponder(~resp, idR)  
     ]->
            
     [ InitiatorFinal(~skI, pk(~skI), idI, k2_calc, resp_calc) ]                        // Final state of the Initiator
        
 
-
-
-
-
-
-
-
-
-
 restriction equality:
 "All x y #i. Eq(x, y) @ i ==> x = y"
     
-
+//3a
 //If there are two InitiatorKey (i.e., two key registrations) for the Initiator, their private keys (skI1 and skI2) must be the same.
 //Consequently, their public keys (pkI1 and pkI2) will also be the same, since public keys are derived from private keys.
 restriction UniqueInitiatorKey:
@@ -119,7 +118,6 @@ restriction UniqueInitiatorKey:
     InitInitiatorKeys(skI1, pkI1, idI) @ t1 & 
     InitInitiatorKeys(skI2, pkI2, idI) @ t2 
     ==> skI1 = skI2"
-
 restriction UniqueResponderKey:
     "All skR1 skR2 pkR1 pkR2 idR #t1 #t2.
     InitResponderKeys(skR1, pkR1, idR) @ t1 & 
@@ -127,38 +125,38 @@ restriction UniqueResponderKey:
     ==> skR1 = skR2"
 
 
-//sanity check
-    lemma ExistsValidTrace:exists-trace
-    "Ex #t1 #t2 #t3 k1 k2 t req certI resp sigI sigR.
-    SendInitiator(k1, t, req, certI) @ t1 &
-    ReceiveResponder(k1, t, req, resp, certI, sigI) @ t2 &
-    SendResponder(k2, resp, sigR) @ t3 
+//3d: Write lemmas that check if the transmitted, encrypted values are secret using the Honest or Corrupt actions (one lemma each)
+//this lemma is getting proved but I dont know how to do the corrupt one? I dont understand the question properly for the corrupt part.
+lemma SecrecyAllValues:
+"All k1 k2 t req resp certI sigR #t1 #t2.
+SendInitiator(k1, t, req, certI) @ t1 &
+SendResponderMessage(k2, resp, sigR) @ t2
+==> not (K(req) @ t1 | K(resp) @ t2 | K(k1) @ t1 | K(k2) @ t2)"
+
+    
+//3d: authentication property: If ResponderAuthenticatedInitiator(req, idI) occurs, it must follow a prior SendInitiator(req, idI) due to protocol design and cryptographic checks.
+//not getting proved, but I tried, getting stuck in the loop
+lemma responder_authenticates_initiator:
+  "All #i req idI.
+     (ResponderAuthenticatedInitiator(req, idI) @ i)
+   ==>
+     (Ex #j k1 t certI.
+        SendInitiator(k1, t, req, certI) @ j
+        & j < i
+     )"
+
+
+//3d:protocol model can execute correctly 
+//please wait few more seconds when verifying this lemma
+lemma ExistsValidTrace:exists-trace
+"Ex #t1 #t2 #t3 #t4 k1 k2 t req certI resp sigI sigR k2_calc resp_calc.
+SendInitiator(k1, t, req, certI) @ t1 &
+ReceiveInitiatorMessage(k1, t, req, resp, certI, sigI) @ t2 &
+SendResponderMessage(k2, resp, sigR) @ t3  &
+ReceiveResponderMessage(k2_calc, resp_calc, sigR) @t4
     "
 
-
-
-// lemma UniqueInitiatorKey:
-//     "All skI1 skI2 pkI1 pkI2 idI #t1 #t2.
-//     InitInitiatorKeys(skI1, pkI1, idI) @ t1 & 
-//     InitInitiatorKeys(skI2, pkI2, idI) @ t2 
-//     ==> skI1 = skI2 & pkI1 = pkI2"
-
-// lemma UniqueResponderKey:
-//     "All skR1 skR2 pkR1 pkR2 idR #t1 #t2.
-//     InitResponderKeys(skR1, pkR1, idR) @ t1 & 
-//     InitResponderKeys(skR2, pkR2, idR) @ t2 
-//     ==> skR1 = skR2 & pkR1 = pkR2"
-
-//Whenever a key registration happens honestly, the protocol explicitly tracks the corresponding identity (id) as honest.
-// lemma HonestKeyRegistration:
-//     "All id ska pka #t.
-//     InitInitiatorKeys(ska, pka, id) @ t & InitResponderKeys(ska, pka, id) @ t
-//     ==> Honest(id) @ t"
-
-// lemma CorruptKeyRegistration:
-//     "All id ska pka #t.
-//     RegisterInitiatorKey_Corrupt(ska, pka, id) @ t & RegisterResponderKey_Corrupt(ska, pka, id) @ t
-//     ==> Corrupt(id) @ t"
+   
 
 
 end
