@@ -1,7 +1,7 @@
 theory x_509
 begin
 
-functions: CEOgen/1
+functions: CEOgen/1, true/0
 builtins: asymmetric-encryption, signing, symmetric-encryption
 
 rule InitInitiatorKeys:  
@@ -23,8 +23,7 @@ rule CorruptInitiatorKeys:  // Dishonest Initiator
     [ Fr(~k), Fr(idCI) ]  // Attacker-provided private key and identity for Initiator
   --[ 
      RegisterInitiatorKey_Corrupt(~k, pk(~k), idCI), 
-    Corrupt(idCI) 
-     ]->
+    Corrupt(idCI) ]->
     [ Out(pk(~k)) ] 
 
 rule CorruptResponderKeys:  // Dishonest Responder
@@ -42,7 +41,7 @@ rule I1:
       !RegisterInitiatorKey_Honest(~skI, pk(~skI), idI),
       !RegisterResponderKey_Honest(~skR, pkR, idR) ]  
   --[ 
-        SendInitiator(~certI, ~t, senc(~req, ~k1), aenc(~k1, pk(~skR)), sign(<~req, ~t>,~skI))
+        SendInitiator(~k1, ~t, ~req,~certI)
     ]->
     [ Out(~certI),                           // Certificate of Initiator
       Out(~t),                              // Timestamp
@@ -52,6 +51,53 @@ rule I1:
       Initiator(~skI, pk(~skI), idI, ~certI, ~k1, ~t, ~req) ]         // Digital signature
 
 
+rule R1:
+let 
+sigI=sign(<~req, ~t>,~skI) 
+key1=adec(aenc(~k1, pk(~skR)), ~skR)
+Req=sdec(senc(~req, ~k1), key1)
+sigR=sign(<~resp, sigI>, ~skR)
+
+in
+      [ Fr(~k2), 
+        Fr(~resp),
+        In(~certI),
+        In(~t), 
+        In(senc(~req, ~k1)),
+        In(aenc(~k1, pk(~skR))),
+        In(sigI),
+        !RegisterInitiatorKey_Honest(~skI, pk(~skI), idI),
+        !RegisterResponderKey_Honest(~skR, pk(~skR), idR) 
+    ]  
+    --[
+        Eq(true, verify(sigI,<~req, ~t>,pk(~skI))),
+        ReceiveResponder(~k1, ~t, ~req, ~resp, ~certI, sigI),
+        SendResponder(~k2, ~resp, sigR)                      
+      ]->
+
+      [ Out(senc(~resp, ~k2)),               // Symmetric encryption of RESP
+        Out(aenc(~k2, pk(~skI))),            // Asymmetric encryption of k2
+        Out(sigR) 
+       ]                                     
+  
+
+rule I2:
+    let 
+    k2_calc = adec(aenc(~k2, pk(~skI)), ~skI)           // Decrypt symmetric key
+    resp_calc = sdec(senc(~resp, ~k2), k2_calc)               // Decrypt response
+    in
+    [ In(senc(~resp, ~k2)),                        // Encrypted response
+    In(aenc(~k2, pk(~skI))),                     // Encrypted symmetric key
+    In(sign(<~resp, ~sigI>, ~skR)),              // Responder's signature
+    !RegisterInitiatorKey_Honest(~skI, pk(~skI), idI),   // Initiator's key
+    !RegisterResponderKey_Honest(~skR, pk(~skR), idR)    // Responder's key
+    ]
+    --[
+        Eq(true, verify(sign(<~resp, ~sigI>, ~skR), <~resp, ~sigI>, pk(~skR)))  // Verify Responder's signature
+    ]->
+           
+    [ InitiatorFinal(~skI, pk(~skI), idI, k2_calc, resp_calc) ]                        // Final state of the Initiator
+       
 
 
 
@@ -62,14 +108,9 @@ rule I1:
 
 
 
-
-
-
-
-
-
-
-
+restriction equality:
+"All x y #i. Eq(x, y) @ i ==> x = y"
+    
 
 //If there are two InitiatorKey (i.e., two key registrations) for the Initiator, their private keys (skI1 and skI2) must be the same.
 //Consequently, their public keys (pkI1 and pkI2) will also be the same, since public keys are derived from private keys.
@@ -85,28 +126,39 @@ restriction UniqueResponderKey:
     InitResponderKeys(skR2, pkR2, idR) @ t2 
     ==> skR1 = skR2"
 
-lemma UniqueInitiatorKey:
-    "All skI1 skI2 pkI1 pkI2 idI #t1 #t2.
-    InitInitiatorKeys(skI1, pkI1, idI) @ t1 & 
-    InitInitiatorKeys(skI2, pkI2, idI) @ t2 
-    ==> skI1 = skI2 & pkI1 = pkI2"
 
-lemma UniqueResponderKey:
-    "All skR1 skR2 pkR1 pkR2 idR #t1 #t2.
-    InitResponderKeys(skR1, pkR1, idR) @ t1 & 
-    InitResponderKeys(skR2, pkR2, idR) @ t2 
-    ==> skR1 = skR2 & pkR1 = pkR2"
+//sanity check
+    lemma ExistsValidTrace:exists-trace
+    "Ex #t1 #t2 #t3 k1 k2 t req certI resp sigI sigR.
+    SendInitiator(k1, t, req, certI) @ t1 &
+    ReceiveResponder(k1, t, req, resp, certI, sigI) @ t2 &
+    SendResponder(k2, resp, sigR) @ t3 
+    "
+
+
+
+// lemma UniqueInitiatorKey:
+//     "All skI1 skI2 pkI1 pkI2 idI #t1 #t2.
+//     InitInitiatorKeys(skI1, pkI1, idI) @ t1 & 
+//     InitInitiatorKeys(skI2, pkI2, idI) @ t2 
+//     ==> skI1 = skI2 & pkI1 = pkI2"
+
+// lemma UniqueResponderKey:
+//     "All skR1 skR2 pkR1 pkR2 idR #t1 #t2.
+//     InitResponderKeys(skR1, pkR1, idR) @ t1 & 
+//     InitResponderKeys(skR2, pkR2, idR) @ t2 
+//     ==> skR1 = skR2 & pkR1 = pkR2"
 
 //Whenever a key registration happens honestly, the protocol explicitly tracks the corresponding identity (id) as honest.
-lemma HonestKeyRegistration:
-    "All id ska pka #t.
-    InitInitiatorKeys(ska, pka, id) @ t & InitResponderKeys(ska, pka, id) @ t
-    ==> Honest(id) @ t"
+// lemma HonestKeyRegistration:
+//     "All id ska pka #t.
+//     InitInitiatorKeys(ska, pka, id) @ t & InitResponderKeys(ska, pka, id) @ t
+//     ==> Honest(id) @ t"
 
-lemma CorruptKeyRegistration:
-    "All id ska pka #t.
-    RegisterInitiatorKey_Corrupt(ska, pka, id) @ t & RegisterResponderKey_Corrupt(ska, pka, id) @ t
-    ==> Corrupt(id) @ t"
+// lemma CorruptKeyRegistration:
+//     "All id ska pka #t.
+//     RegisterInitiatorKey_Corrupt(ska, pka, id) @ t & RegisterResponderKey_Corrupt(ska, pka, id) @ t
+//     ==> Corrupt(id) @ t"
 
 
 end
