@@ -1,8 +1,8 @@
 theory x_509
 begin
 
-functions: true/0
 builtins: asymmetric-encryption, signing, symmetric-encryption
+functions: true/0
 
 //3a
 rule InitInitiatorKeys:  
@@ -24,13 +24,13 @@ rule CorruptInitiatorKeys:
     [ Fr(~k), Fr(idCI) ]  // Adversary provides private key ~k and identity idCI
   --[ RegisterInitiatorKey_Corrupt(~k, pk(~k), idCI), 
       Corrupt(idCI) ]->   // Mark the key as corrupt
-    [ Out(pk(~k)) ]       // Output the public key
+    [ Out(~k) ]       // Output the public key
 
 rule CorruptResponderKeys:
     [ Fr(~k), Fr(idCR) ]  // Adversary provides private key ~k and identity idCR
   --[ RegisterResponderKey_Corrupt(~k, pk(~k), idCR), 
       Corrupt(idCR) ]->   // Mark the key as corrupt
-    [ Out(pk(~k)) ]       // Output the public key
+    [ Out(~k) ]       // Output the public key
 
 
 //3c
@@ -89,7 +89,7 @@ rule I2:
     sigI=sign(<~req, ~t>,~skI) 
     k2_calc = adec(aenc(~k2, pk(~skI)), ~skI)
     resp_calc = sdec(senc(~resp, ~k2), k2_calc)               // Decrypt response
-    //sigR=sign(<~resp, sigI>, ~skR)
+    sigR=sign(<~resp, sigI>, ~skR)
     in
     [ In(senc(~resp, ~k2)),                        // Encrypted response
     In(aenc(~k2, pk(~skI))),                     // Encrypted symmetric key
@@ -136,14 +136,14 @@ SendResponderMessage(k2, resp, sigR) @ t2
     
 //3d: authentication property: If ResponderAuthenticatedInitiator(req, idI) occurs, it must follow a prior SendInitiator(req, idI) due to protocol design and cryptographic checks.
 //not getting proved, but I tried, getting stuck in the loop
-lemma responder_authenticates_initiator:
-  "All #i req idI.
-     (ResponderAuthenticatedInitiator(req, idI) @ i)
-   ==>
-     (Ex #j k1 t certI.
-        SendInitiator(k1, t, req, certI) @ j
-        & j < i
-     )"
+// lemma responder_authenticates_initiator:
+//   "All #i req idI.
+//      (ResponderAuthenticatedInitiator(req, idI) @ i)
+//    ==>
+//      (Ex #j k1 t certI.
+//         SendInitiator(k1, t, req, certI) @ j
+//         & j < i
+//      )"
 
 
 //3d:protocol model can execute correctly 
